@@ -31,65 +31,147 @@ pub fn should_filter(event: &Event, config: &CspFilterConfig) -> Result<(), Filt
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ParsedUrl<'a> {
+    scheme: Option<&'a str>,
+    domain: &'a str,
+    port: Option<&'a str>,
+    path: Option<&'a str>,
+}
+
+impl<'a> ParsedUrl<'a> {
+    pub fn new(url: &'a str) -> Self {
+        // Split the scheme from the url.
+        let (scheme, rest) = match url.find("://") {
+            Some(index) => (Some(&url[..index]), &url[index + 3..]),
+            None => (None, url),
+        };
+
+        // Extract domain:port from the path of the url.
+        let (host, mut path) = match rest.find('/') {
+            Some(index) => (&rest[..index], Some(&rest[index + 1..])),
+            None => (rest, None),
+        };
+
+        if path == Some("") {
+            path = None;
+        }
+
+        // Split the domain and the port
+        let (domain, port) = match host.find(':') {
+            Some(index) => (&host[..index], Some(&host[index + 1..])),
+            None => (host, None),
+        };
+
+        Self {
+            scheme,
+            domain,
+            port,
+            path,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PatternComponent<'a> {
+    All,
+    Pattern(&'a str),
+    DomainSuffix(&'a str),
+    PathPrefix(&'a str),
+}
+
+impl<'a> PatternComponent<'a> {
+    pub fn new(pattern: &'a str) -> Self {
+        if pattern == "*" {
+            Self::All
+        } else {
+            Self::Pattern(pattern)
+        }
+    }
+
+    pub fn from_option(pattern: Option<&'a str>) -> Self {
+        match pattern {
+            Some(pattern) => Self::new(pattern),
+            None => Self::All,
+        }
+    }
+
+    pub fn into_domain_suffix(self) -> Self {
+        match self {
+            Self::Pattern(pattern) if pattern.starts_with("*.") => {
+                Self::DomainSuffix(&pattern[1..])
+            }
+            other => other,
+        }
+    }
+
+    pub fn into_path_prefix(self) -> Self {
+        match self {
+            Self::Pattern(pattern) if pattern.ends_with("*") => {
+                Self::PathPrefix(&pattern[..pattern.len() - 1])
+            }
+            other => other,
+        }
+    }
+
+    pub fn is_match(&self, component: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Pattern(pattern) => pattern.eq_ignore_ascii_case(component),
+            Self::DomainSuffix(pattern) => {
+                pattern[1..].eq_ignore_ascii_case(component)
+                    || component.len() >= pattern.len()
+                        && component[component.len() - pattern.len()..]
+                            .eq_ignore_ascii_case(pattern)
+            }
+            Self::PathPrefix(pattern) => {
+                component.len() >= pattern.len()
+                    && component[..pattern.len()].eq_ignore_ascii_case(component)
+            }
+        }
+    }
+}
+
+impl Default for PatternComponent<'_> {
+    fn default() -> Self {
+        Self::All
+    }
+}
+
 /// A pattern used to match allowed paths
 ///
 /// scheme, domain and port are extracted from an url
 /// they may be either a string (to be matched exactly, case insensitive)
 /// or None (matches anything in the respective position)
-#[derive(Hash, PartialEq, Eq)]
-pub struct SchemeDomainPort {
-    pub scheme: Option<String>,
-    pub domain: Option<String>,
-    pub port: Option<String>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParsedUrlPattern<'a> {
+    scheme: PatternComponent<'a>,
+    domain: PatternComponent<'a>,
+    port: PatternComponent<'a>,
+    path: PatternComponent<'a>,
 }
 
-impl From<&str> for SchemeDomainPort {
-    /// parse a string into a SchemaDomainPort pattern
-    fn from(url: &str) -> SchemeDomainPort {
-        /// converts string into patterns for SchemeDomainPort
-        /// the convention is that a "*" matches everything which
-        /// we encode as a None (same as the absence of the pattern)
-        fn normalize(pattern: &str) -> Option<String> {
-            if pattern == "*" {
-                None
-            } else {
-                Some(pattern.to_lowercase())
-            }
+impl<'a> ParsedUrlPattern<'a> {
+    pub fn new(url: &'a str) -> Self {
+        Self::from_parsed(ParsedUrl::new(url))
+    }
+
+    fn from_parsed(parsed: ParsedUrl<'a>) -> Self {
+        Self {
+            scheme: PatternComponent::from_option(parsed.scheme),
+            domain: PatternComponent::new(parsed.domain).into_domain_suffix(),
+            port: PatternComponent::from_option(parsed.port),
+            path: PatternComponent::from_option(parsed.path).into_path_prefix(),
         }
+    }
+}
 
-        //split the scheme from the url
-        let scheme_idx = url.find("://");
-        let (scheme, rest) = if let Some(idx) = scheme_idx {
-            (normalize(&url[..idx]), &url[idx + 3..]) // chop after the scheme + the "://" delimiter
-        } else {
-            (None, url) // no scheme, chop nothing form original string
-        };
-
-        //extract domain:port from the rest of the url
-        let end_domain_idx = rest.find('/');
-        let domain_port = if let Some(end_domain_idx) = end_domain_idx {
-            &rest[..end_domain_idx] // remove the path from rest
-        } else {
-            rest // no path, use everything
-        };
-
-        //split the domain and the port
-        let port_separator_idx = domain_port.find(':');
-        let (domain, port) = if let Some(port_separator_idx) = port_separator_idx {
-            //we have a port separator, split the string into domain and port
-            (
-                normalize(&domain_port[..port_separator_idx]),
-                normalize(&domain_port[port_separator_idx + 1..]),
-            )
-        } else {
-            (normalize(domain_port), None) // no port, whole string represents the domain
-        };
-
-        SchemeDomainPort {
-            scheme,
-            domain,
-            port,
-        }
+impl ParsedUrlPattern<'_> {
+    pub fn is_match(&self, url: &ParsedUrl) -> bool {
+        self.scheme.is_match(url.scheme.unwrap_or(""))
+            && self.domain.is_match(url.domain)
+            && self.port.is_match(url.port.unwrap_or(""))
+            && self.path.is_match(url.path.unwrap_or(""))
     }
 }
 
@@ -101,41 +183,18 @@ impl From<&str> for SchemeDomainPort {
 ///  - * : anything goes
 ///  - *.domain.com : matches domain.com and any subdomains
 ///  - *:port : matches any hostname as long as the port matches
-pub fn matches_any_origin(url: Option<&str>, origins: &[SchemeDomainPort]) -> bool {
-    // if we have a "*" (Any) option, anything matches so don't bother going forward
-    if origins
-        .iter()
-        .any(|o| o.scheme == None && o.port == None && o.domain == None)
-    {
-        return true;
-    }
+pub fn matches_any_origin(url: Option<&str>, allowed_origins: &[&str]) -> bool {
+    let url = match url {
+        Some(url) => ParsedUrl::new(url),
+        None => return false,
+    };
 
-    if let Some(url) = url {
-        let url = SchemeDomainPort::from(url);
-
-        for origin in origins {
-            if origin.scheme != None && url.scheme != origin.scheme {
-                continue; // scheme not matched
-            }
-            if origin.port != None && url.port != origin.port {
-                continue; // port not matched
-            }
-            if origin.domain != None && url.domain != origin.domain {
-                // no direct match for domain, look for  partial patterns (e.g. "*.domain.com")
-                if let (Some(origin_domain), Some(domain)) = (&origin.domain, &url.domain) {
-                    if origin_domain.starts_with('*')
-                        && ((*domain).ends_with(&origin_domain[1..])
-                            || domain.as_str() == &origin_domain[2..])
-                    {
-                        return true; // partial domain pattern match
-                    }
-                }
-                continue; // domain not matched
-            }
-            // if we are here all patterns have matched so we are done
+    for allowed_origin in allowed_origins {
+        if ParsedUrlPattern::new(allowed_origin).is_match(&url) {
             return true;
         }
     }
+
     false
 }
 
@@ -199,15 +258,14 @@ mod tests {
         ];
 
         for (url, scheme, domain, port) in examples {
-            let actual: SchemeDomainPort = (*url).into();
-            assert_eq!(
-                (actual.scheme, actual.domain, actual.port),
-                (
-                    scheme.map(|x| x.to_string()),
-                    domain.map(|x| x.to_string()),
-                    port.map(|x| x.to_string())
-                )
-            );
+            let actual = SchemeDomainPort::from(*url);
+            let expected = SchemeDomainPort {
+                scheme: scheme.map(str::to_owned),
+                domain: domain.map(str::to_owned),
+                port: port.map(str::to_owned),
+            };
+
+            assert_eq!(actual, expected);
         }
     }
 
