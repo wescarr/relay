@@ -357,6 +357,7 @@ impl ProjectState {
 
         // only drop events if we know for sure the project or key are disabled.
         if self.disabled() {
+            dbg!(self);
             return Err(DiscardReason::ProjectId);
         }
 
@@ -669,6 +670,7 @@ impl Project {
 
         if let Some(ref state) = self.state {
             relay_log::debug!("project state {} updated", self.project_key);
+            dbg!(&state);
             channel.send(state.clone());
         }
     }

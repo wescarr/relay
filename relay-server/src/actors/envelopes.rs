@@ -2272,7 +2272,7 @@ impl Handler<HandleEnvelope> for EnvelopeManager {
                     // we "expect" errors and log them as debug level.
                     relay_log::error!("error processing envelope: {}", LogError(&error));
                 } else {
-                    relay_log::debug!("dropped envelope: {}", LogError(&error));
+                    relay_log::debug!("dropped envelope: {}", LogError(dbg!(&error)));
                 }
 
                 if let ProcessingError::Timeout = error {

@@ -610,7 +610,7 @@ pub enum Level {
 
 impl Default for Level {
     fn default() -> Self {
-        Level::Info
+        Level::Debug
     }
 }
 
