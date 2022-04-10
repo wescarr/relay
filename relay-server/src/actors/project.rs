@@ -675,7 +675,7 @@ impl Project {
 
     fn check_envelope_scoped(
         &mut self,
-        mut envelope: Envelope,
+        mut envelope: Box<Envelope>,
         scoping: &Scoping,
     ) -> Result<CheckedEnvelope, DiscardReason> {
         if let Some(state) = self.state() {
@@ -704,7 +704,7 @@ impl Project {
         })
     }
 
-    pub fn check_envelope(&mut self, envelope: Envelope) -> CheckEnvelopeResponse {
+    pub fn check_envelope(&mut self, envelope: Box<Envelope>) -> CheckEnvelopeResponse {
         let scoping = self.scope_request(envelope.meta());
         let result = self.check_envelope_scoped(envelope, &scoping);
         CheckEnvelopeResponse { result, scoping }

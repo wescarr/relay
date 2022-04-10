@@ -337,7 +337,7 @@ struct ProcessEnvelopeState {
     ///
     /// The pipeline can mutate the envelope and remove or add items. In particular, event items are
     /// removed at the beginning of processing and re-added in the end.
-    envelope: Envelope,
+    envelope: Box<Envelope>,
 
     /// The extracted event payload.
     ///
@@ -1924,7 +1924,7 @@ impl Default for EnvelopeProcessor {
 
 #[derive(Debug)]
 struct ProcessEnvelope {
-    pub envelope: Envelope,
+    pub envelope: Box<Envelope>,
     pub project_state: Arc<ProjectState>,
     pub start_time: Instant,
     pub scoping: Scoping,
@@ -1932,7 +1932,7 @@ struct ProcessEnvelope {
 
 #[cfg_attr(not(feature = "processing"), allow(dead_code))]
 struct ProcessEnvelopeResponse {
-    envelope: Option<Envelope>,
+    envelope: Option<Box<Envelope>>,
     rate_limits: RateLimits,
 }
 
@@ -2057,7 +2057,7 @@ enum SendEnvelopeError {
 }
 
 /// Either a captured envelope or an error that occured during processing.
-pub type CapturedEnvelope = Result<Envelope, String>;
+pub type CapturedEnvelope = Result<Box<Envelope>, String>;
 
 #[derive(Debug)]
 struct EncodeEnvelope {
@@ -2230,7 +2230,7 @@ impl EnvelopeManager {
     fn send_envelope(
         &mut self,
         project_key: ProjectKey,
-        mut envelope: Envelope,
+        mut envelope: Box<Envelope>,
         scoping: Scoping,
         #[allow(unused_variables)] start_time: Instant,
     ) -> ResponseFuture<(), SendEnvelopeError> {
@@ -2360,7 +2360,7 @@ impl Default for EnvelopeManager {
 /// contained an event-related item, such as an event payload or an attachment, this contains
 /// `Some(EventId)`.
 pub struct QueueEnvelope {
-    pub envelope: Envelope,
+    pub envelope: Box<Envelope>,
     pub project_key: ProjectKey,
     pub start_time: Instant,
 }
@@ -2458,7 +2458,7 @@ impl Handler<QueueEnvelope> for EnvelopeManager {
 /// This operation is invoked by [`QueueEnvelope`] for envelopes containing all items except
 /// metrics.
 struct HandleEnvelope {
-    pub envelope: Envelope,
+    pub envelope: Box<Envelope>,
     pub project_key: ProjectKey,
     pub start_time: Instant,
 }

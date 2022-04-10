@@ -694,8 +694,8 @@ pub struct Envelope {
 
 impl Envelope {
     /// Creates an envelope from request information.
-    pub fn from_request(event_id: Option<EventId>, meta: RequestMeta) -> Self {
-        Self {
+    pub fn from_request(event_id: Option<EventId>, meta: RequestMeta) -> Box<Self> {
+        Box::new(Self {
             headers: EnvelopeHeaders {
                 event_id,
                 meta,
@@ -705,16 +705,16 @@ impl Envelope {
                 trace: None,
             },
             items: Items::new(),
-        }
+        })
     }
 
     /// Parses an envelope from bytes.
     #[allow(dead_code)]
-    pub fn parse_bytes(bytes: Bytes) -> Result<Self, EnvelopeError> {
+    pub fn parse_bytes(bytes: Bytes) -> Result<Box<Self>, EnvelopeError> {
         let (headers, offset) = Self::parse_headers(&bytes)?;
         let items = Self::parse_items(&bytes, offset)?;
 
-        Ok(Envelope { headers, items })
+        Ok(Box::new(Envelope { headers, items }))
     }
 
     /// Parses an envelope taking into account a request.
@@ -723,7 +723,10 @@ impl Envelope {
     /// request. It validates that request headers are in line with the envelope's headers.
     ///
     /// If no event id is provided explicitly, one is created on the fly.
-    pub fn parse_request(bytes: Bytes, request_meta: RequestMeta) -> Result<Self, EnvelopeError> {
+    pub fn parse_request(
+        bytes: Bytes,
+        request_meta: RequestMeta,
+    ) -> Result<Box<Self>, EnvelopeError> {
         let (partial_headers, offset) = Self::parse_headers::<PartialMeta>(&bytes)?;
         let mut headers = partial_headers.complete(request_meta)?;
 
@@ -733,7 +736,7 @@ impl Envelope {
             headers.event_id.get_or_insert_with(EventId::new);
         }
 
-        Ok(Envelope { headers, items })
+        Ok(Box::new(Envelope { headers, items }))
     }
 
     /// Returns the number of items in this envelope.
@@ -863,7 +866,7 @@ impl Envelope {
     /// with all items that return `true`. Items that return `false` remain in this envelope.
     ///
     /// The returned envelope assumes the same headers.
-    pub fn split_by<F>(&mut self, mut f: F) -> Option<Self>
+    pub fn split_by<F>(&mut self, mut f: F) -> Option<Box<Self>>
     where
         F: FnMut(&Item) -> bool,
     {
@@ -876,10 +879,10 @@ impl Envelope {
         let (split_items, own_items) = old_items.into_iter().partition(f);
         self.items = own_items;
 
-        Some(Envelope {
+        Some(Box::new(Envelope {
             headers: self.headers.clone(),
             items: split_items,
-        })
+        }))
     }
 
     pub fn trace_context(&self) -> Option<&TraceContext> {

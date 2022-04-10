@@ -59,10 +59,10 @@ pub fn should_keep_event(
 /// item should be sampled out according to the dynamic sampling configuration and the trace
 /// context.
 fn sample_transaction_internal(
-    mut envelope: Envelope,
+    mut envelope: Box<Envelope>,
     project_state: Option<&ProjectState>,
     processing_enabled: bool,
-) -> Result<Envelope, RuleId> {
+) -> Result<Box<Envelope>, RuleId> {
     let project_state = match project_state {
         None => return Ok(envelope),
         Some(project_state) => project_state,
@@ -123,12 +123,12 @@ fn sample_transaction_internal(
 /// Returns `Ok` if there are remaining items in the envelope. Returns `Err` with the matching rule
 /// identifier if all elements have been removed.
 pub fn sample_trace(
-    envelope: Envelope,
+    envelope: Box<Envelope>,
     project_key: Option<ProjectKey>,
     fast_processing: bool,
     processing_enabled: bool,
     envelope_context: EnvelopeContext,
-) -> ResponseFuture<Envelope, RuleId> {
+) -> ResponseFuture<Box<Envelope>, RuleId> {
     let project_key = match project_key {
         None => return Box::new(future::ok(envelope)),
         Some(project) => project,
@@ -237,7 +237,7 @@ mod tests {
     }
 
     /// ugly hack to build an envelope with an optional trace context
-    fn new_envelope(with_trace_context: bool) -> Envelope {
+    fn new_envelope(with_trace_context: bool) -> Box<Envelope> {
         let dsn = "https://e12d836b15bb49d7bbf99e64295d995b:@sentry.io/42";
         let event_id = EventId::new();
 

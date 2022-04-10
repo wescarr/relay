@@ -131,9 +131,14 @@ impl ServiceState {
 
         let processor = EnvelopeProcessor::start(config.clone(), redis_pool.clone())?;
         let envelope_manager = EnvelopeManager::create(config.clone(), processor)?;
-        registry.set(envelope_manager.start());
+        registry.set(
+            Arbiter::builder()
+                .name("envelope_manager")
+                .start(|_| envelope_manager),
+        );
 
-        let project_cache = ProjectCache::new(config.clone(), redis_pool).start();
+        let pc = ProjectCache::new(config.clone(), redis_pool);
+        let project_cache = Arbiter::builder().name("project_cache").start(|_| pc);
         registry.set(project_cache.clone());
         registry.set(Healthcheck::new(config.clone()).start());
         registry.set(RelayCache::new(config.clone()).start());

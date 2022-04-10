@@ -380,13 +380,13 @@ impl Handler<GetCachedProjectState> for ProjectCache {
 #[derive(Debug)]
 pub struct CheckEnvelope {
     project_key: ProjectKey,
-    envelope: Envelope,
+    envelope: Box<Envelope>,
     fetch: bool,
 }
 
 impl CheckEnvelope {
     /// Fetches the project state and checks the envelope.
-    pub fn fetched(project_key: ProjectKey, envelope: Envelope) -> Self {
+    pub fn fetched(project_key: ProjectKey, envelope: Box<Envelope>) -> Self {
         Self {
             project_key,
             envelope,
@@ -395,7 +395,7 @@ impl CheckEnvelope {
     }
 
     /// Uses a cached project state and checks the envelope.
-    pub fn cached(project_key: ProjectKey, envelope: Envelope) -> Self {
+    pub fn cached(project_key: ProjectKey, envelope: Box<Envelope>) -> Self {
         Self {
             project_key,
             envelope,
@@ -410,7 +410,7 @@ impl CheckEnvelope {
 /// from the envelope, `None` is returned in place of the envelope.
 #[derive(Debug)]
 pub struct CheckedEnvelope {
-    pub envelope: Option<Envelope>,
+    pub envelope: Option<Box<Envelope>>,
     pub rate_limits: RateLimits,
 }
 

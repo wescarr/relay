@@ -674,7 +674,7 @@ impl KafkaMessage {
 /// Message sent to the StoreForwarder containing an event
 #[derive(Clone, Debug)]
 pub struct StoreEnvelope {
-    pub envelope: Envelope,
+    pub envelope: Box<Envelope>,
     pub start_time: Instant,
     pub scoping: Scoping,
 }

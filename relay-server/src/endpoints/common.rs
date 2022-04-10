@@ -330,7 +330,7 @@ pub fn handle_store_like_request<F, R, I>(
 ) -> ResponseFuture<HttpResponse, BadStoreRequest>
 where
     F: FnOnce(&HttpRequest<ServiceState>, RequestMeta) -> I + 'static,
-    I: IntoFuture<Item = Envelope, Error = BadStoreRequest> + 'static,
+    I: IntoFuture<Item = Box<Envelope>, Error = BadStoreRequest> + 'static,
     R: FnOnce(Option<EventId>) -> HttpResponse + Copy + 'static,
 {
     // For now, we only handle <= v8 and drop everything else
