@@ -25,7 +25,11 @@ def test_sessions(mini_sentry, relay_chain):
         "duration": 1947.49,
         "status": "exited",
         "errors": 0,
-        "attrs": {"release": "sentry-test@1.0.0", "environment": "production",},
+        "attrs": {
+            "release": "sentry-test@1.0.0",
+            "environment": "production",
+            "os": "iOS",
+        },
     }
 
     relay.send_session(project_id, session_payload)
@@ -61,7 +65,11 @@ def test_session_with_processing(mini_sentry, relay_with_processing, sessions_co
             "duration": 1947.49,
             "status": "exited",
             "errors": 0,
-            "attrs": {"release": "sentry-test@1.0.0", "environment": "production",},
+            "attrs": {
+                "release": "sentry-test@1.0.0",
+                "environment": "production",
+                "os": "iOS",
+            },
         },
     )
 
@@ -80,6 +88,7 @@ def test_session_with_processing(mini_sentry, relay_with_processing, sessions_co
         "status": "exited",
         "errors": 0,
         "release": "sentry-test@1.0.0",
+        "os": "iOS",
         "environment": "production",
         "retention_days": 90,
         "sdk": "raven-node/2.6.3",

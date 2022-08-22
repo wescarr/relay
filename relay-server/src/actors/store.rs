@@ -494,6 +494,7 @@ impl StoreForwarder {
             errors: 0,
             release: attributes.release,
             environment: attributes.environment,
+            os: attributes.os,
             sdk: client.map(str::to_owned),
             retention_days: event_retention,
             status: SessionStatus::Exited,
@@ -568,6 +569,7 @@ impl StoreForwarder {
                 .max((session.status == SessionStatus::Crashed) as _) as _,
             release: session.attributes.release,
             environment: session.attributes.environment,
+            os: session.attributes.os,
             sdk: client.map(str::to_owned),
             retention_days: event_retention,
         })
@@ -904,6 +906,7 @@ struct SessionKafkaMessage {
     errors: u16,
     release: String,
     environment: Option<String>,
+    os: Option<String>,
     sdk: Option<String>,
     retention_days: u16,
 }
