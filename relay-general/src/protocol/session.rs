@@ -72,9 +72,33 @@ pub struct SessionAttributes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
 
-    /// The os identifier.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub os: Option<String>,
+    /// The os name identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "os.name")]
+    pub os_name: Option<String>,
+
+    /// The os version identifier.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "os.version"
+    )]
+    pub os_version: Option<String>,
+
+    /// The  device family.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "device.family"
+    )]
+    pub device_family: Option<String>,
+
+    /// The device model.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "device.model"
+    )]
+    pub device_model: Option<String>,
 
     /// The ip address of the user.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -309,7 +333,10 @@ mod tests {
   "timestamp": "2020-02-07T15:17:00Z",
   "started": "2020-02-07T14:16:00Z",
   "attrs": {
-    "os": "iOS 15",
+    "os.version": "15.2",
+    "os.name": "iOS",
+    "device.family": "iOS",
+    "device.model": "iPhone14",
     "release": "sentry-test@1.0.0"
   }
 }"#;
@@ -324,7 +351,10 @@ mod tests {
   "errors": 0,
   "attrs": {
     "release": "sentry-test@1.0.0",
-    "os": "iOS 15"
+    "os.name": "iOS",
+    "os.version": "15.2",
+    "device.family": "iOS",
+    "device.model": "iPhone14"
   }
 }"#;
 
@@ -343,7 +373,10 @@ mod tests {
                 environment: None,
                 ip_address: None,
                 user_agent: None,
-                os: Some("iOS 15".to_owned()),
+                os_version: Some("15.2".to_owned()),
+                os_name: Some("iOS".to_owned()),
+                device_family: Some("iOS".to_owned()),
+                device_model: Some("iPhone14".to_owned()),
             },
         };
 
@@ -405,7 +438,10 @@ mod tests {
                 environment: Some("production".to_owned()),
                 ip_address: Some(IpAddr::parse("::1").unwrap()),
                 user_agent: Some("Firefox/72.0".to_owned()),
-                os: None,
+                os_name: None,
+                os_version: None,
+                device_family: None,
+                device_model: None,
             },
         };
 
