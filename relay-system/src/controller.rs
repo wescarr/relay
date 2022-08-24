@@ -71,6 +71,19 @@ pub struct Controller {
 }
 
 impl Controller {
+    pub fn create() -> (actix::SystemRunner, Addr<Self>) {
+        let sys = System::new("relay");
+
+        compat::init();
+
+        // Ensure that the controller starts if no actor has started it yet. It will register with
+        // `ProcessSignals` shut down even if no actors have subscribed. If we remove this line, the
+        // controller will not be instantiated and our system will not listen for signals.
+        let addr = Controller::from_registry();
+
+        (sys, addr)
+    }
+
     /// Starts an actix system and runs the `factory` to start actors.
     ///
     /// The factory may be used to start actors in the actix system before it runs. If the factory
@@ -81,18 +94,11 @@ impl Controller {
     where
         F: FnOnce() -> Result<R, E>,
     {
-        let sys = System::new("relay");
-
-        compat::init();
+        let (sys, _) = Self::create();
 
         // Run the factory and exit early if an error happens. The return value of the factory is
         // discarded for convenience, to allow shorthand notations.
         factory()?;
-
-        // Ensure that the controller starts if no actor has started it yet. It will register with
-        // `ProcessSignals` shut down even if no actors have subscribed. If we remove this line, the
-        // controller will not be instantiated and our system will not listen for signals.
-        Controller::from_registry();
 
         // All actors have started successfully. Run the system, which blocks the current thread
         // until a signal arrives or `Controller::stop` is called.

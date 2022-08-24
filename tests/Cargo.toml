@@ -1,0 +1,22 @@
+[package]
+name = "integration-tests"
+authors = ["Sentry <oss@sentry.io>"]
+description = "Integration tests for Relay"
+homepage = "https://getsentry.github.io/relay/"
+repository = "https://github.com/getsentry/relay"
+version = "22.8.0"
+edition = "2018"
+license-file = "../LICENSE"
+publish = false
+
+[dev-dependencies]
+axum = "0.5.15"
+actix = "0.7.9"
+parking_lot = "0.12.1"
+relay-log = { path = "../relay-log", features = ["test"] }
+relay-config = { path = "../relay-config" }
+relay-server = { path = "../relay-server" }
+relay-system = { path = "../relay-system" }
+reqwest = "0.11.11"
+serde_json = "1.0.85"
+tokio = { version = "1.20.1", features = ["rt-multi-thread", "macros"] }
