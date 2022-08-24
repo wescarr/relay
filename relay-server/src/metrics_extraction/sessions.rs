@@ -77,9 +77,9 @@ pub fn extract_session_metrics<T: SessionLike>(
     if let Some(ref environment) = attributes.environment {
         tags.insert("environment".to_owned(), environment.clone());
     }
-    if let Some(ref os_version) = attributes.os_version {
-        print!("{:#?}", attributes.os_version);
-        tags.insert("os.version".to_owned(), os_version.clone());
+    if let Some(ref os) = attributes.os {
+        print!("{:#?}", attributes.os);
+        tags.insert("os".to_owned(), os.clone());
     }
     if let Some(ref os_name) = attributes.os_name {
         print!("{:#?}", attributes.os_name);
@@ -89,9 +89,12 @@ pub fn extract_session_metrics<T: SessionLike>(
         print!("{:#?}", attributes.device_family);
         tags.insert("device.family".to_owned(), device_family.clone());
     }
-    if let Some(ref device_model) = attributes.device_model {
-        print!("{:#?}", attributes.device_model);
-        tags.insert("device.model".to_owned(), device_model.clone());
+    if let Some(ref device_manufacturer) = attributes.device_manufacturer {
+        print!("{:#?}", attributes.device_manufacturer);
+        tags.insert(
+            "device.manufacturer".to_owned(),
+            device_manufacturer.clone(),
+        );
     }
     if let Some(client) = client {
         tags.insert("sdk".to_owned(), client.to_owned());
@@ -466,10 +469,10 @@ mod tests {
                 "attrs": {
                     "release": "my-project-name@1.0.0",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "device.family": "iOS",
-                    "device.model": "iPhone14"
+                    "device.manufacturer": "iPhone14"
                 }
             }"#
             .as_bytes(),
@@ -490,10 +493,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084960),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "init",
@@ -507,10 +510,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084960),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "errored_preaggr",
@@ -524,10 +527,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084960),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "abnormal",
@@ -541,10 +544,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084960),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "crashed",
@@ -558,10 +561,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084961),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "init",
@@ -575,10 +578,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084961),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "errored_preaggr",
@@ -592,10 +595,10 @@ mod tests {
                 timestamp: UnixTimestamp(1581084961),
                 tags: {
                     "device.family": "iOS",
-                    "device.model": "iPhone14",
+                    "device.manufacturer": "iPhone14",
                     "environment": "development",
+                    "os": "iOS 15",
                     "os.name": "iOS",
-                    "os.version": "15",
                     "release": "my-project-name@1.0.0",
                     "sdk": "sentry-test/1.0",
                     "session.status": "errored",
