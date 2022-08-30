@@ -1311,6 +1311,9 @@ struct CappedBucketIter<T: Iterator<Item = Bucket>> {
     buckets: T,
     next_bucket: Option<Bucket>,
     max_flush_bytes: usize,
+    /// Contains leftover data not returned by the iterator after it has ended.
+    /// This should only be `Some` when `max_flush_bytes` is set to a very small value.
+    unused_data: Option<Bucket>,
 }
 
 impl<T: Iterator<Item = Bucket>> CappedBucketIter<T> {
@@ -1321,6 +1324,7 @@ impl<T: Iterator<Item = Bucket>> CappedBucketIter<T> {
             buckets,
             next_bucket,
             max_flush_bytes,
+            unused_data: None,
         }
     }
 }
@@ -1356,7 +1360,7 @@ impl<T: Iterator<Item = Bucket>> Iterator for CappedBucketIter<T> {
         }
 
         if current_batch.is_empty() {
-            debug_assert!(self.next_bucket.is_none());
+            self.unused_data = self.next_bucket.take();
             None
         } else {
             Some(current_batch)
@@ -1772,13 +1776,16 @@ impl Aggregator {
     ) where
         F: FnMut(Vec<Bucket>),
     {
-        let capped_batches =
+        let mut capped_batches_iter =
             CappedBucketIter::new(buckets.into_iter(), self.config.max_flush_bytes);
         let partition_tag = match partition_key {
             Some(partition_key) => partition_key.to_string(),
             None => "none".to_owned(),
         };
-        let capped_batches: Vec<_> = capped_batches.collect();
+        let capped_batches: Vec<_> = capped_batches_iter.by_ref().collect();
+        if capped_batches_iter.unused_data.is_some() {
+            relay_log::error!("CappedBucketIter swallowed bucket");
+        }
         if partition_tag != "none" {
             relay_statsd::metric!(
                 histogram(MetricHistograms::BatchesPerPartition) = capped_batches.len() as f64,
@@ -3144,14 +3151,20 @@ mod tests {
 
         let buckets = Bucket::parse_all(json.as_bytes()).unwrap();
 
-        let iter = CappedBucketIter::new(buckets.into_iter(), max_flush_bytes);
-        let batches = iter.take(expected_elements + 1).collect::<Vec<_>>();
+        let mut iter = CappedBucketIter::new(buckets.into_iter(), max_flush_bytes);
+        let batches = iter
+            .by_ref()
+            .take(expected_elements + 1)
+            .collect::<Vec<_>>();
         assert!(
             batches.len() <= expected_elements,
             "Cannot have more buckets than individual values"
         );
         let total_elements: usize = batches.into_iter().flatten().map(|x| x.value.len()).sum();
         assert_eq!(total_elements, expected_elements);
+        if expected_elements == 0 {
+            assert!(iter.unused_data.is_some());
+        }
     }
 
     #[test]
