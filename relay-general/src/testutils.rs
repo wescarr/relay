@@ -1,64 +1,5 @@
-#[cfg(feature = "uaparser")]
 use crate::protocol::{Event, Headers, PairList, Request};
-#[cfg(feature = "uaparser")]
 use crate::types::Annotated;
-
-macro_rules! assert_eq_str {
-    ($left:expr, $right:expr) => {
-        match (&$left, &$right) {
-            (left, right) => assert!(
-                left == right,
-                "`left == right` in line {}:\n{}\n{}",
-                line!(),
-                difference::Changeset::new("- left", "+ right", "\n"),
-                difference::Changeset::new(&left, &right, "\n")
-            ),
-        }
-    };
-    ($left:expr, $right:expr,) => {
-        assert_eq_str!($left, $right)
-    };
-}
-
-pub(crate) use assert_eq_str;
-
-macro_rules! assert_eq_bytes_str {
-    ($left:expr, $right:expr) => {
-        match (&$left, &$right) {
-            (left, right) => assert!(
-                left == right,
-                "`left == right` in line {}:\n{}\n{}",
-                line!(),
-                pretty_hex::pretty_hex(left),
-                pretty_hex::pretty_hex(right),
-            ),
-        }
-    };
-    ($left:expr, $right:expr,) => {
-        assert_eq_str!($left, $right)
-    };
-}
-
-pub(crate) use assert_eq_bytes_str;
-
-macro_rules! assert_eq_dbg {
-    ($left:expr, $right:expr) => {
-        match (&$left, &$right) {
-            (left, right) => assert!(
-                left == right,
-                "`left == right` in line {}:\n{}\n{}",
-                line!(),
-                difference::Changeset::new("- left", "+ right", "\n"),
-                difference::Changeset::new(&format!("{:#?}", left), &format!("{:#?}", right), "\n")
-            ),
-        }
-    };
-    ($left:expr, $right:expr,) => {
-        assert_eq_dbg!($left, $right)
-    };
-}
-
-pub(crate) use assert_eq_dbg;
 
 macro_rules! assert_annotated_snapshot {
     ($value:expr, @$snapshot:literal) => {
@@ -146,7 +87,6 @@ macro_rules! get_value {
 
 pub(crate) use get_value;
 
-#[cfg(feature = "uaparser")]
 /// Creates an Event with the specified user agent.
 pub(super) fn get_event_with_user_agent(user_agent: &str) -> Event {
     let headers = vec![

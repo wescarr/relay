@@ -241,16 +241,6 @@ class OutcomesConsumer(ConsumerBase):
             if key_id is not None:
                 assert outcome["key_id"] == key_id
 
-    def assert_dropped_internal(self):
-        outcome = self.get_outcome()
-        assert outcome["outcome"] == 3
-        assert outcome["reason"] == "internal"
-
-    def assert_dropped_unknown_project(self):
-        outcome = self.get_outcome()
-        assert outcome["outcome"] == 3
-        assert outcome["reason"] == "project_id"
-
 
 @pytest.fixture
 def events_consumer(kafka_consumer):
@@ -289,7 +279,9 @@ def replay_recordings_consumer(kafka_consumer):
 
 @pytest.fixture
 def replay_events_consumer(kafka_consumer):
-    return lambda: ReplayEventsConsumer(*kafka_consumer("replay_events"))
+    return lambda timeout=None: ReplayEventsConsumer(
+        timeout=timeout, *kafka_consumer("replay_events")
+    )
 
 
 class MetricsConsumer(ConsumerBase):
@@ -374,6 +366,8 @@ class ReplayEventsConsumer(ConsumerBase):
         assert message is not None
         assert message.error() is None
 
-        event = msgpack.unpackb(message.value(), raw=False, use_list=False)
-        assert event["type"] == "replay_event"
-        return json.loads(event["payload"].decode("utf8")), event
+        event = json.loads(message.value())
+        payload = json.loads(bytes(event["payload"]))
+
+        assert payload["type"] == "replay_event"
+        return payload, event

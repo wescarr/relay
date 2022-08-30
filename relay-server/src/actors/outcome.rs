@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
+use std::fmt;
 use std::mem;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -17,7 +18,7 @@ use actix_web::http::Method;
 use chrono::{DateTime, SecondsFormat, Utc};
 #[cfg(feature = "processing")]
 use failure::{Fail, ResultExt};
-use futures::future::Future;
+use futures01::future::Future;
 #[cfg(feature = "processing")]
 use rdkafka::producer::BaseRecord;
 #[cfg(feature = "processing")]
@@ -150,7 +151,6 @@ pub enum Outcome {
     // #[allow(dead_code)]
     // Accepted,
     /// The event has been filtered due to a configured filter.
-    #[cfg_attr(not(feature = "processing"), allow(dead_code))]
     Filtered(FilterStatKey),
 
     /// The event has been filtered by a Sampling Rule
@@ -194,6 +194,21 @@ impl Outcome {
                 .map(|code| Cow::Owned(code.as_str().into())),
             Outcome::ClientDiscard(ref discard_reason) => Some(Cow::Borrowed(discard_reason)),
             Outcome::Abuse => None,
+        }
+    }
+}
+
+impl fmt::Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Outcome::Filtered(key) => write!(f, "filtered by {}", key),
+            Outcome::FilteredSampling(rule) => write!(f, "sampling rule {}", rule),
+            Outcome::RateLimited(None) => write!(f, "rate limited"),
+            Outcome::RateLimited(Some(reason)) => write!(f, "rate limited with reason {}", reason),
+            Outcome::Invalid(DiscardReason::Internal) => write!(f, "internal error"),
+            Outcome::Invalid(reason) => write!(f, "invalid data ({})", reason),
+            Outcome::Abuse => write!(f, "abuse limit reached"),
+            Outcome::ClientDiscard(reason) => write!(f, "discarded by client ({})", reason),
         }
     }
 }
@@ -307,6 +322,10 @@ pub enum DiscardReason {
 
     /// (Relay) We failed to parse the profile so we discard the profile.
     ProcessProfile,
+
+    /// (Relay) The profile is parseable but semantically invalid. This could happen if
+    /// profiles lack sufficient samples.
+    InvalidProfile,
 }
 
 impl DiscardReason {
@@ -343,7 +362,14 @@ impl DiscardReason {
             DiscardReason::Internal => "internal",
             DiscardReason::TransactionSampled => "transaction_sampled",
             DiscardReason::EmptyEnvelope => "empty_envelope",
+            DiscardReason::InvalidProfile => "invalid_profile",
         }
+    }
+}
+
+impl fmt::Display for DiscardReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 

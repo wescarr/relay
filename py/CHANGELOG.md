@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add `transaction_info` to event payloads, including the transaction's source and internal original transaction name. ([#1330](https://github.com/getsentry/relay/pull/1330))
+- Add user-agent parsing to replays processor. ([#1420](https://github.com/getsentry/relay/pull/1420))
+
 ## 0.8.13
 
 - Add a data category constant for Replays. ([#1239](https://github.com/getsentry/relay/pull/1239))

@@ -429,11 +429,11 @@ pub struct ItemHeaders {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     timestamp: Option<UnixTimestamp>,
 
-    /// Flag indicating if metrics have already been extracted from the item
+    /// Flag indicating if metrics have already been extracted from the item.
     ///
     /// In order to only extract metrics once from an item while through a
     /// chain of Relays, a Relay that extracts metrics from an item (typically
-    /// the first Relay) MUST set this flat to true so that downstream Relays do
+    /// the first Relay) MUST set this flat to true so that upstream Relays do
     /// not extract the metric again causing double counting of the metric.
     #[serde(default, skip_serializing_if = "is_false")]
     metrics_extracted: bool,
@@ -956,7 +956,10 @@ impl Envelope {
     pub fn sampling_context(&self) -> Option<&DynamicSamplingContext> {
         match &self.headers.trace {
             Option::None => None,
-            Option::Some(ErrorBoundary::Err(_)) => None,
+            Option::Some(ErrorBoundary::Err(e)) => {
+                relay_log::debug!("failed to parse sampling context: {:?}", e);
+                None
+            }
             Option::Some(ErrorBoundary::Ok(t)) => Some(t),
         }
     }

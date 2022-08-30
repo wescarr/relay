@@ -11,6 +11,7 @@ import pytest
 from flask import jsonify
 
 from requests.exceptions import HTTPError
+import zstandard
 
 
 def test_local_project_config(mini_sentry, relay):
@@ -186,7 +187,8 @@ def test_query_retry_maxed_out(
         relay.send_event(42)
         time.sleep(query_timeout)
 
-        outcomes_consumer.assert_dropped_internal()
+        outcome = outcomes_consumer.get_outcome()
+        assert (outcome["outcome"], outcome["reason"]) == (3, "project_state")
         assert request_count == 1 + RETRIES
 
         for (_, error) in mini_sentry.test_failures[:-1]:
@@ -198,7 +200,7 @@ def test_query_retry_maxed_out(
             )
 
         _, last_error = mini_sentry.test_failures[-1]
-        assert "failed to resolve project information" in str(last_error)
+        assert "deadline exceeded" in str(last_error)
     finally:
         mini_sentry.test_failures.clear()
 
@@ -225,7 +227,35 @@ def test_processing_redis_query(
     relay.send_event(project_id)
 
     if disabled:
-        outcomes_consumer.assert_dropped_unknown_project()
+        outcome = outcomes_consumer.get_outcome()
+        assert (outcome["outcome"], outcome["reason"]) == (3, "project_id")
     else:
         event, v = events_consumer.get_event()
         assert event["logentry"] == {"formatted": "Hello, World!"}
+
+
+def test_processing_redis_query_compressed(
+    mini_sentry, relay_with_processing, events_consumer, outcomes_consumer
+):
+    outcomes_consumer = outcomes_consumer()
+    events_consumer = events_consumer()
+
+    relay = relay_with_processing({"limits": {"query_timeout": 10}})
+    project_id = 42
+    cfg = mini_sentry.add_full_project_config(project_id)
+
+    key = mini_sentry.get_dsn_public_key(project_id)
+    redis_client = redis.Redis(host="127.0.0.1", port=6379, db=0)
+    projectconfig_cache_prefix = relay.options["processing"][
+        "projectconfig_cache_prefix"
+    ]
+    redis_client.setex(
+        f"{projectconfig_cache_prefix}:{key}",
+        3600,
+        zstandard.compress(json.dumps(cfg).encode()),
+    )
+
+    relay.send_event(project_id)
+
+    event, v = events_consumer.get_event()
+    assert event["logentry"] == {"formatted": "Hello, World!"}

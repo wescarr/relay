@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use actix::fut;
 use actix::prelude::*;
 use actix_web::http::Method;
-use futures::{future, future::Shared, sync::oneshot, Future};
+use futures01::{future, future::Shared, sync::oneshot, Future};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
@@ -159,7 +159,7 @@ impl UpstreamProjectSource {
 
         let fresh_channels = (projects.iter())
             .filter_map(|id| Some((*id, self.state_channels.remove(id)?)))
-            .filter(|(_id, channel)| {
+            .filter(|(id, channel)| {
                 if channel.expired() {
                     metric!(
                         histogram(RelayHistograms::ProjectStateAttempts) = channel.attempts,
@@ -169,6 +169,7 @@ impl UpstreamProjectSource {
                         counter(RelayCounters::ProjectUpstreamCompleted) += 1,
                         result = "timeout",
                     );
+                    relay_log::error!("error fetching project state {}: deadline exceeded", id);
                 }
                 !channel.expired()
             });

@@ -25,8 +25,14 @@ pub use self::geo::{GeoIpError, GeoIpLookup};
 pub use normalize::breakdowns::{
     get_breakdown_measurements, BreakdownConfig, BreakdownsConfig, SpanOperationsConfig,
 };
-pub use normalize::{is_valid_platform, normalize_dist};
-pub use transactions::{get_measurement, get_transaction_op, validate_timestamps};
+pub use normalize::{
+    compute_measurements, is_valid_platform, light_normalize_event, normalize_dist,
+    LightNormalizationConfig,
+};
+pub use transactions::{
+    get_measurement, get_transaction_op, is_high_cardinality_sdk, validate_timestamps,
+    validate_transaction,
+};
 
 /// The config for store.
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -61,6 +67,9 @@ pub struct StoreConfig {
 
     /// Emit additional span attributes based on given configuration.
     pub span_attributes: BTreeSet<SpanAttribute>,
+
+    /// The SDK's sample rate as communicated via envelope headers.
+    pub client_sample_rate: Option<f64>,
 }
 
 /// The processor that normalizes events for store.
@@ -107,9 +116,6 @@ impl<'a> Processor for StoreProcessor<'a> {
         }
 
         if !is_renormalize {
-            // Check for required and non-empty values
-            schema::SchemaProcessor.process_event(event, meta, state)?;
-
             // Normalize data in all interfaces
             self.normalize.process_event(event, meta, state)?;
         }

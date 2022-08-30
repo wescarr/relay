@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::sentry_failure::FailureIntegration;
 
+/// The full release name including the Relay version and SHA.
+const RELEASE: &str = std::env!("RELAY_RELEASE");
+
 /// Controls the log format.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -231,37 +234,38 @@ pub fn init(config: &LogConfig, sentry: &SentryConfig) {
     let log = sentry::integrations::log::SentryLogger::with_dest(dest_log);
     log::set_boxed_logger(Box::new(log)).ok();
 
-    let release = sentry::release_name!();
     #[cfg(feature = "relay-crash")]
     {
         if let Some(dsn) = sentry.enabled_dsn().map(|d| d.to_string()) {
             if let Some(db) = sentry._crash_db.as_deref() {
                 relay_crash::CrashHandler::new(dsn.as_ref(), db)
-                    .release(release.as_deref())
+                    .release(Some(RELEASE))
                     .install();
             }
         }
     }
 
-    let guard = sentry::init(sentry::ClientOptions {
-        dsn: sentry.enabled_dsn().cloned(),
-        in_app_include: vec![
-            "relay_auth::",
-            "relay_common::",
-            "relay_config::",
-            "relay_filter::",
-            "relay_general::",
-            "relay_quotas::",
-            "relay_redis::",
-            "relay_server::",
-            "relay::",
-        ],
-        integrations: vec![Arc::new(FailureIntegration::new())],
-        release,
-        attach_stacktrace: config.enable_backtraces,
-        ..Default::default()
-    });
+    if let Some(dsn) = sentry.enabled_dsn() {
+        let guard = sentry::init(sentry::ClientOptions {
+            dsn: Some(dsn).cloned(),
+            in_app_include: vec![
+                "relay_auth::",
+                "relay_common::",
+                "relay_config::",
+                "relay_filter::",
+                "relay_general::",
+                "relay_quotas::",
+                "relay_redis::",
+                "relay_server::",
+                "relay::",
+            ],
+            integrations: vec![Arc::new(FailureIntegration::new())],
+            release: Some(RELEASE.into()),
+            attach_stacktrace: config.enable_backtraces,
+            ..Default::default()
+        });
 
-    // Keep the client initialized. The client is flushed manually in `main`.
-    std::mem::forget(guard);
+        // Keep the client initialized. The client is flushed manually in `main`.
+        std::mem::forget(guard);
+    }
 }

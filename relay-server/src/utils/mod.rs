@@ -1,17 +1,19 @@
 mod actix;
 mod api;
+mod buffer;
 mod dynamic_sampling;
+mod envelope_context;
 mod error_boundary;
+mod garbage;
 mod multipart;
 mod param_parser;
-mod profile;
 mod rate_limits;
 mod request;
+mod semaphore;
 mod shutdown;
 mod sizes;
 mod timer;
 mod tracked_future;
-mod with_outcome;
 
 #[cfg(feature = "processing")]
 mod kafka;
@@ -22,18 +24,20 @@ mod unreal;
 
 pub use self::actix::*;
 pub use self::api::*;
+pub use self::buffer::*;
 pub use self::dynamic_sampling::*;
+pub use self::envelope_context::*;
 pub use self::error_boundary::*;
+pub use self::garbage::*;
 pub use self::multipart::*;
 pub use self::param_parser::*;
-pub use self::profile::*;
 pub use self::rate_limits::*;
 pub use self::request::*;
+pub use self::semaphore::*;
 pub use self::shutdown::*;
 pub use self::sizes::*;
 pub use self::timer::*;
 pub use self::tracked_future::*;
-pub use self::with_outcome::*;
 
 #[cfg(feature = "processing")]
 pub use self::kafka::*;

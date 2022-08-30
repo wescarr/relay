@@ -4,13 +4,75 @@
 
 **Features**:
 
-- Extract metrics also from trace-sampled transactions. ([#1317](https://github.com/getsentry/relay/pull/1317))
+- Make Redis connection pool configurable. ([#1418](https://github.com/getsentry/relay/pull/1418))
 
+**Bug Fixes**:
+
+- Do not apply rate limits or reject data based on expired project configs. ([#1404](https://github.com/getsentry/relay/pull/1404))
+- Process required stacktraces to fix filtering events originating from browser extensions. ([#1423](https://github.com/getsentry/relay/pull/1423))
+
+**Internal**:
+
+- Refactor tokio-based Addr from healthcheck to be generic. ([#1405](https://github.com/relay/pull/1405))
+- Defer dropping of projects to a background thread to speed up project cache eviction. ([#1410](https://github.com/getsentry/relay/pull/1410))
+- Update store service to use generic Addr and minor changes to generic Addr. ([#1415](https://github.com/getsentry/relay/pull/1415))
+- Added new Register for the Services that is initialized later than the current. ([#1421](https://github.com/getsentry/relay/pull/1421))
+
+**Features**:
+
+- Make Redis connection pool configurable. ([#1418](https://github.com/getsentry/relay/pull/1418))
+- Add user-agent parsing to replays processor. ([#1420](https://github.com/getsentry/relay/pull/1420))
+- Improve the release name used when reporting data to Sentry to include both the version and exact build. ([#1428](https://github.com/getsentry/relay/pull/1428))
+
+## 22.8.0
+
+**Features**:
+
+- Remove timeout-based expiry of envelopes in Relay's internal buffers. The `cache.envelope_expiry` is now inactive. To control the size of the envelope buffer, use `cache.envelope_buffer_size` exclusively, instead. ([#1398](https://github.com/getsentry/relay/pull/1398))
+- Parse sample rates as JSON. ([#1353](https://github.com/getsentry/relay/pull/1353))
+- Filter events in external Relays, before extracting metrics. ([#1379](https://github.com/getsentry/relay/pull/1379))
+- Add `privatekey` and `private_key` as secret key name to datascrubbers. ([#1376](https://github.com/getsentry/relay/pull/1376))
+- Explain why we responded with 429. ([#1389](https://github.com/getsentry/relay/pull/1389))
+
+**Bug Fixes**:
+
+- Fix a bug where unreal crash reports were dropped when metrics extraction is enabled. ([#1355](https://github.com/getsentry/relay/pull/1355))
+- Extract user from metrics with EventUser's priority. ([#1363](https://github.com/getsentry/relay/pull/1363))
+- Honor `SentryConfig.enabled` and don't init SDK at all if it is false. ([#1380](https://github.com/getsentry/relay/pull/1380))
+- The priority thread metadata on profiles is now optional, do not fail the profile if it's not present. ([#1392](https://github.com/getsentry/relay/pull/1392))
+
+**Internal**:
+
+- Support compressed project configs in redis cache. ([#1345](https://github.com/getsentry/relay/pull/1345))
+- Refactor profile processing into its own crate. ([#1340](https://github.com/getsentry/relay/pull/1340))
+- Treat "unknown" transaction source as low cardinality for safe SDKs. ([#1352](https://github.com/getsentry/relay/pull/1352), [#1356](https://github.com/getsentry/relay/pull/1356))
+- Conditionally write a default transaction source to the transaction payload. ([#1354](https://github.com/getsentry/relay/pull/1354))
+- Generate mobile measurements frames_frozen_rate, frames_slow_rate, stall_percentage. ([#1373](https://github.com/getsentry/relay/pull/1373))
+- Change to the internals of the healthcheck endpoint. ([#1374](https://github.com/getsentry/relay/pull/1374), [#1377](https://github.com/getsentry/relay/pull/1377))
+- Re-encode the Typescript payload to normalize. ([#1372](https://github.com/getsentry/relay/pull/1372))
+- Partially normalize events before extracting metrics. ([#1366](https://github.com/getsentry/relay/pull/1366))
+- Spawn more threads for CPU intensive work. ([#1378](https://github.com/getsentry/relay/pull/1378))
+- Add missing fields to DeviceContext ([#1383](https://github.com/getsentry/relay/pull/1383))
+- Improve performance of Redis accesses by not running `PING` everytime a connection is reused. ([#1394](https://github.com/getsentry/relay/pull/1394))
+- Distinguish between various discard reasons for profiles. ([#1395](https://github.com/getsentry/relay/pull/1395))
+- Add missing fields to GPUContext ([#1391](https://github.com/getsentry/relay/pull/1391))
+- Store actor now uses Tokio for message handling instead of Actix. ([#1397](https://github.com/getsentry/relay/pull/1397))
+- Add app_memory to AppContext struct. ([#1403](https://github.com/getsentry/relay/pull/1403))
+
+## 22.7.0
+
+**Features**:
+
+- Adjust sample rate by envelope header's sample_rate. ([#1327](https://github.com/getsentry/relay/pull/1327))
+- Support `transaction_info` on event payloads. ([#1330](https://github.com/getsentry/relay/pull/1330))
+- Extract transaction metrics in external relays. ([#1344](https://github.com/getsentry/relay/pull/1344))
 
 **Bug Fixes**:
 
 - Parse custom units with length < 15 without crashing. ([#1312](https://github.com/getsentry/relay/pull/1312))
 - Split large metrics requests into smaller batches. This avoids failed metrics submission and lost Release Health data due to `413 Payload Too Large` errors on the upstream. ([#1326](https://github.com/getsentry/relay/pull/1326))
+- Metrics extraction: Map missing transaction status to "unknown". ([#1333](https://github.com/getsentry/relay/pull/1333))
+- Fix [CVE-2022-2068](https://www.openssl.org/news/vulnerabilities.html#CVE-2022-2068) and [CVE-2022-2097](https://www.openssl.org/news/vulnerabilities.html#CVE-2022-2097) by updating to OpenSSL 1.1.1q. ([#1334](https://github.com/getsentry/relay/pull/1334))
 
 **Internal**:
 
@@ -18,7 +80,9 @@
 - Indicate with thread is the main thread in thread metadata for profiles. ([#1320](https://github.com/getsentry/relay/pull/1320))
 - Increase profile maximum size by an order of magnitude. ([#1321](https://github.com/getsentry/relay/pull/1321))
 - Add data category constant for processed transactions, encompassing all transactions that have been received and sent through dynamic sampling as well as metrics extraction. ([#1306](https://github.com/getsentry/relay/pull/1306))
+- Extract metrics also from trace-sampled transactions. ([#1317](https://github.com/getsentry/relay/pull/1317))
 - Extract metrics from a configurable amount of custom transaction measurements. ([#1324](https://github.com/getsentry/relay/pull/1324))
+- Metrics: Drop transaction tag for high-cardinality sources. ([#1339](https://github.com/getsentry/relay/pull/1339))
 
 ## 22.6.0
 

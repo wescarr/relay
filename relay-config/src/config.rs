@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
 use std::env;
 use std::fmt;
 use std::fs;
@@ -727,7 +728,11 @@ struct Cache {
     project_grace_period: u32,
     /// The cache timeout for downstream relay info (public keys) in seconds.
     relay_expiry: u32,
-    /// The cache timeout for envelopes (store) before dropping them.
+    /// Unused cache timeout for envelopes.
+    ///
+    /// The envelope buffer is instead controlled by `envelope_buffer_size`, which controls the
+    /// maximum number of envelopes in the buffer. A time based configuration may be re-introduced
+    /// at a later point.
     #[serde(alias = "event_expiry")]
     envelope_expiry: u32,
     /// The maximum amount of envelopes to queue before dropping them.
@@ -1780,14 +1785,13 @@ impl Config {
         Duration::from_secs(self.values.cache.relay_expiry.into())
     }
 
-    /// Returns the timeout for buffered envelopes (due to upstream errors).
-    pub fn envelope_buffer_expiry(&self) -> Duration {
-        Duration::from_secs(self.values.cache.envelope_expiry.into())
-    }
-
     /// Returns the maximum number of buffered envelopes
-    pub fn envelope_buffer_size(&self) -> u32 {
-        self.values.cache.envelope_buffer_size
+    pub fn envelope_buffer_size(&self) -> usize {
+        self.values
+            .cache
+            .envelope_buffer_size
+            .try_into()
+            .unwrap_or(usize::MAX)
     }
 
     /// Returns the expiry timeout for cached misses before trying to refetch.

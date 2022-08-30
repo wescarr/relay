@@ -3,14 +3,16 @@
     html_logo_url = "https://raw.githubusercontent.com/getsentry/relay/master/artwork/relay-icon.png",
     html_favicon_url = "https://raw.githubusercontent.com/getsentry/relay/master/artwork/relay-icon.png"
 )]
+#![allow(clippy::derive_partial_eq_without_eq)]
 
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
 use std::net::IpAddr;
 
 use rand::{distributions::Uniform, Rng};
 use rand_pcg::Pcg32;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Number, Value};
 
 use relay_common::{EventType, ProjectKey, Uuid};
@@ -29,17 +31,6 @@ pub enum RuleType {
     /// A non transaction rule applies to Errors, Security events...every type of event that
     /// is not a Transaction
     Error,
-}
-
-/// The result of a sampling operation returned by [`DynamicSamplingContext::should_keep`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SamplingResult {
-    /// Keep the event.
-    Keep,
-    /// Drop the event, due to the rule with provided identifier.
-    Drop(RuleId),
-    /// No decision can be made.
-    NoDecision,
 }
 
 /// A condition that checks the values using the equality operator.
@@ -63,14 +54,10 @@ pub struct EqCondition {
 }
 
 impl EqCondition {
-    fn matches_event(&self, event: &Event) -> bool {
-        self.matches(event)
-    }
-    fn matches_trace(&self, trace: &DynamicSamplingContext) -> bool {
-        self.matches(trace)
-    }
-
-    fn matches<T: FieldValueProvider>(&self, value_provider: &T) -> bool {
+    fn matches<T>(&self, value_provider: &T) -> bool
+    where
+        T: FieldValueProvider,
+    {
         let value = value_provider.get_value(self.name.as_str());
 
         match value {
@@ -125,14 +112,7 @@ macro_rules! impl_cmp_condition {
         }
 
         impl $struct_name {
-            fn matches_event(&self, event: &Event) -> bool {
-                self.matches(event)
-            }
-            fn matches_trace(&self, trace: &DynamicSamplingContext) -> bool {
-                self.matches(trace)
-            }
-
-            fn matches<T: FieldValueProvider>(&self, value_provider: &T) -> bool {
+            fn matches<T>(&self, value_provider: &T) -> bool where T: FieldValueProvider{
                 let value = match value_provider.get_value(self.name.as_str()) {
                     Value::Number(x) => x,
                     _ => return false
@@ -169,14 +149,10 @@ pub struct GlobCondition {
 }
 
 impl GlobCondition {
-    fn matches_event(&self, event: &Event) -> bool {
-        self.matches(event)
-    }
-    fn matches_trace(&self, trace: &DynamicSamplingContext) -> bool {
-        self.matches(trace)
-    }
-
-    fn matches<T: FieldValueProvider>(&self, value_provider: &T) -> bool {
+    fn matches<T>(&self, value_provider: &T) -> bool
+    where
+        T: FieldValueProvider,
+    {
         value_provider
             .get_value(self.name.as_str())
             .as_str()
@@ -197,11 +173,11 @@ pub struct CustomCondition {
 }
 
 impl CustomCondition {
-    fn matches_event(&self, event: &Event, ip_addr: Option<IpAddr>) -> bool {
-        Event::get_custom_operator(&self.name)(self, event, ip_addr)
-    }
-    fn matches_trace(&self, trace: &DynamicSamplingContext, ip_addr: Option<IpAddr>) -> bool {
-        DynamicSamplingContext::get_custom_operator(&self.name)(self, trace, ip_addr)
+    fn matches<T>(&self, value_provider: &T, ip_addr: Option<IpAddr>) -> bool
+    where
+        T: FieldValueProvider,
+    {
+        T::get_custom_operator(&self.name)(self, value_provider, ip_addr)
     }
 }
 
@@ -218,15 +194,12 @@ impl OrCondition {
     fn supported(&self) -> bool {
         self.inner.iter().all(RuleCondition::supported)
     }
-    fn matches_event(&self, event: &Event, ip_addr: Option<IpAddr>) -> bool {
-        self.inner
-            .iter()
-            .any(|cond| cond.matches_event(event, ip_addr))
-    }
-    fn matches_trace(&self, trace: &DynamicSamplingContext, ip_addr: Option<IpAddr>) -> bool {
-        self.inner
-            .iter()
-            .any(|cond| cond.matches_trace(trace, ip_addr))
+
+    fn matches<T>(&self, value: &T, ip_addr: Option<IpAddr>) -> bool
+    where
+        T: FieldValueProvider,
+    {
+        self.inner.iter().any(|cond| cond.matches(value, ip_addr))
     }
 }
 
@@ -243,15 +216,11 @@ impl AndCondition {
     fn supported(&self) -> bool {
         self.inner.iter().all(RuleCondition::supported)
     }
-    fn matches_event(&self, event: &Event, ip_addr: Option<IpAddr>) -> bool {
-        self.inner
-            .iter()
-            .all(|cond| cond.matches_event(event, ip_addr))
-    }
-    fn matches_trace(&self, trace: &DynamicSamplingContext, ip_addr: Option<IpAddr>) -> bool {
-        self.inner
-            .iter()
-            .all(|cond| cond.matches_trace(trace, ip_addr))
+    fn matches<T>(&self, value: &T, ip_addr: Option<IpAddr>) -> bool
+    where
+        T: FieldValueProvider,
+    {
+        self.inner.iter().all(|cond| cond.matches(value, ip_addr))
     }
 }
 
@@ -268,11 +237,12 @@ impl NotCondition {
     fn supported(&self) -> bool {
         self.inner.supported()
     }
-    fn matches_event(&self, event: &Event, ip_addr: Option<IpAddr>) -> bool {
-        !self.inner.matches_event(event, ip_addr)
-    }
-    fn matches_trace(&self, trace: &DynamicSamplingContext, ip_addr: Option<IpAddr>) -> bool {
-        !self.inner.matches_trace(trace, ip_addr)
+
+    fn matches<T>(&self, value: &T, ip_addr: Option<IpAddr>) -> bool
+    where
+        T: FieldValueProvider,
+    {
+        !self.inner.matches(value, ip_addr)
     }
 }
 
@@ -315,34 +285,22 @@ impl RuleCondition {
             RuleCondition::Custom(_) => true,
         }
     }
-    pub fn matches_event(&self, event: &Event, ip_addr: Option<IpAddr>) -> bool {
+    pub fn matches<T>(&self, value: &T, ip_addr: Option<IpAddr>) -> bool
+    where
+        T: FieldValueProvider,
+    {
         match self {
-            RuleCondition::Eq(condition) => condition.matches_event(event),
-            RuleCondition::Lte(condition) => condition.matches_event(event),
-            RuleCondition::Gte(condition) => condition.matches_event(event),
-            RuleCondition::Gt(condition) => condition.matches_event(event),
-            RuleCondition::Lt(condition) => condition.matches_event(event),
-            RuleCondition::Glob(condition) => condition.matches_event(event),
-            RuleCondition::And(conditions) => conditions.matches_event(event, ip_addr),
-            RuleCondition::Or(conditions) => conditions.matches_event(event, ip_addr),
-            RuleCondition::Not(condition) => condition.matches_event(event, ip_addr),
+            RuleCondition::Eq(condition) => condition.matches(value),
+            RuleCondition::Lte(condition) => condition.matches(value),
+            RuleCondition::Gte(condition) => condition.matches(value),
+            RuleCondition::Gt(condition) => condition.matches(value),
+            RuleCondition::Lt(condition) => condition.matches(value),
+            RuleCondition::Glob(condition) => condition.matches(value),
+            RuleCondition::And(conditions) => conditions.matches(value, ip_addr),
+            RuleCondition::Or(conditions) => conditions.matches(value, ip_addr),
+            RuleCondition::Not(condition) => condition.matches(value, ip_addr),
             RuleCondition::Unsupported => false,
-            RuleCondition::Custom(condition) => condition.matches_event(event, ip_addr),
-        }
-    }
-    pub fn matches_trace(&self, trace: &DynamicSamplingContext, ip_addr: Option<IpAddr>) -> bool {
-        match self {
-            RuleCondition::Eq(condition) => condition.matches_trace(trace),
-            RuleCondition::Gte(condition) => condition.matches_trace(trace),
-            RuleCondition::Lte(condition) => condition.matches_trace(trace),
-            RuleCondition::Gt(condition) => condition.matches_trace(trace),
-            RuleCondition::Lt(condition) => condition.matches_trace(trace),
-            RuleCondition::Glob(condition) => condition.matches_trace(trace),
-            RuleCondition::And(conditions) => conditions.matches_trace(trace, ip_addr),
-            RuleCondition::Or(conditions) => conditions.matches_trace(trace, ip_addr),
-            RuleCondition::Not(condition) => condition.matches_trace(trace, ip_addr),
-            RuleCondition::Unsupported => false,
-            RuleCondition::Custom(condition) => condition.matches_trace(trace, ip_addr),
+            RuleCondition::Custom(condition) => condition.matches(value, ip_addr),
         }
     }
 }
@@ -377,7 +335,7 @@ impl SamplingRule {
 /// Trait implemented by providers of fields (Events and Trace Contexts).
 ///
 /// The fields will be used by rules to check if they apply.
-trait FieldValueProvider {
+pub trait FieldValueProvider {
     /// gets the value of a field
     fn get_value(&self, path: &str) -> Value;
     /// what type of rule can be applied to this provider
@@ -671,6 +629,50 @@ impl SamplingConfig {
     pub fn has_unsupported_rules(&self) -> bool {
         !self.rules.iter().all(SamplingRule::supported)
     }
+
+    /// Get the first rule of type [`RuleType::Trace`] whose conditions match on the given sampling
+    /// context.
+    ///
+    /// This is a function separate from `get_matching_event_rule` because trace rules can
+    /// (theoretically) be applied even if there's no event. Also we expect that trace rules are
+    /// executed before event rules.
+    pub fn get_matching_trace_rule<'a>(
+        &'a self,
+        sampling_context: &DynamicSamplingContext,
+        ip_addr: Option<IpAddr>,
+    ) -> Option<&'a SamplingRule> {
+        for rule in &self.rules {
+            if rule.ty == RuleType::Trace && rule.condition.matches(sampling_context, ip_addr) {
+                return Some(rule);
+            }
+        }
+
+        None
+    }
+
+    /// Get the first rule of type [`RuleType::Transaction`] or [`RuleType::Error`] whose conditions
+    /// match the given event.
+    ///
+    /// The rule type to filter by is inferred from the event's type.
+    pub fn get_matching_event_rule<'a>(
+        &'a self,
+        event: &Event,
+        ip_addr: Option<IpAddr>,
+    ) -> Option<&'a SamplingRule> {
+        let ty = if let Some(EventType::Transaction) = &event.ty.0 {
+            RuleType::Transaction
+        } else {
+            RuleType::Error
+        };
+
+        for rule in &self.rules {
+            if rule.ty == ty && rule.condition.matches(event, ip_addr) {
+                return Some(rule);
+            }
+        }
+
+        None
+    }
 }
 
 /// The User related information in the trace context
@@ -726,7 +728,46 @@ impl<'de> Deserialize<'de> for TraceUserContext {
     }
 }
 
+mod sample_rate_as_string {
+    use super::*;
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = match Option::<Cow<'_, str>>::deserialize(deserializer)? {
+            Some(value) => value,
+            None => return Ok(None),
+        };
+
+        let parsed_value =
+            serde_json::from_str(&value).map_err(|e| serde::de::Error::custom(e.to_string()))?;
+
+        if parsed_value < 0.0 {
+            return Err(serde::de::Error::custom("sample rate cannot be negative"));
+        }
+
+        Ok(Some(parsed_value))
+    }
+
+    pub fn serialize<S>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(float) => serde_json::to_string(float)
+                .map_err(|e| serde::ser::Error::custom(e.to_string()))?
+                .serialize(serializer),
+            None => value.serialize(serializer),
+        }
+    }
+}
+
 /// DynamicSamplingContext created by the first Sentry SDK in the call chain.
+///
+/// Because SDKs need to funnel this data through the baggage header, this needs to be
+/// representable as `HashMap<String, String>`, meaning no nested dictionaries/objects, arrays or
+/// other non-string values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DynamicSamplingContext {
     /// ID created by clients to represent the current call flow.
@@ -745,65 +786,50 @@ pub struct DynamicSamplingContext {
     /// Set on transaction start, or via `scope.transaction`.
     #[serde(default)]
     pub transaction: Option<String>,
+    /// The sample rate with which this trace was sampled in the client. This is a float between 0 and
+    /// 1.
+    #[serde(
+        default,
+        with = "sample_rate_as_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sample_rate: Option<f64>,
     /// The user specific identifier ( e.g. a user segment, or similar created by the SDK
     /// from the user object).
     #[serde(flatten, default)]
     pub user: TraceUserContext,
+    /// Spillover values for backwards/forwards compat
+    #[serde(flatten, default)]
+    pub other: BTreeMap<String, Value>,
 }
 
 impl DynamicSamplingContext {
-    /// Returns whether a trace should be retained based on sampling rules.
-    ///
-    /// If [`SamplingResult::NoDecision`] is returned, then no rule matched this trace. In this
-    /// case, the caller may decide whether to keep the trace or not. The same is returned if the
-    /// configuration is invalid.
-    pub fn should_keep(&self, ip_addr: Option<IpAddr>, config: &SamplingConfig) -> SamplingResult {
-        if let Some(rule) = get_matching_trace_rule(config, self, ip_addr, RuleType::Trace) {
-            let rate = pseudo_random_from_uuid(self.trace_id);
-
-            if rate < rule.sample_rate {
-                SamplingResult::Keep
-            } else {
-                SamplingResult::Drop(rule.id)
-            }
+    /// Compute the effective sampling rate based on the random "diceroll" and the sample rate from
+    /// the matching rule.
+    pub fn adjusted_sample_rate(&self, rule_sample_rate: f64) -> f64 {
+        let client_sample_rate = self.sample_rate.unwrap_or(1.0);
+        if client_sample_rate <= 0.0 {
+            // client_sample_rate is 0, which is bogus because the SDK should've dropped the
+            // envelope. In that case let's pretend the sample rate was not sent, because clearly
+            // the sampling decision across the trace is still 1. The most likely explanation is
+            // that the SDK is reporting its own sample rate setting instead of the one from the
+            // continued trace.
+            //
+            // since we write back the client_sample_rate into the event's trace context, it should
+            // be possible to find those values + sdk versions via snuba
+            relay_log::warn!("client sample rate is <= 0");
+            rule_sample_rate
         } else {
-            SamplingResult::NoDecision
+            let adjusted_sample_rate = (rule_sample_rate / client_sample_rate).clamp(0.0, 1.0);
+            if adjusted_sample_rate.is_infinite() || adjusted_sample_rate.is_nan() {
+                relay_log::error!("adjusted sample rate ended up being nan/inf");
+                debug_assert!(false);
+                rule_sample_rate
+            } else {
+                adjusted_sample_rate
+            }
         }
     }
-}
-
-/// Returns the type of rule that applies to a particular event.
-pub fn rule_type_for_event(event: &Event) -> RuleType {
-    if let Some(EventType::Transaction) = &event.ty.0 {
-        RuleType::Transaction
-    } else {
-        RuleType::Error
-    }
-}
-
-/// Returns the first event rule that matches the event.
-pub fn get_matching_event_rule<'a>(
-    config: &'a SamplingConfig,
-    event: &Event,
-    ip_addr: Option<IpAddr>,
-    ty: RuleType,
-) -> Option<&'a SamplingRule> {
-    config
-        .rules
-        .iter()
-        .find(|rule| rule.ty == ty && rule.condition.matches_event(event, ip_addr))
-}
-
-fn get_matching_trace_rule<'a>(
-    config: &'a SamplingConfig,
-    trace: &DynamicSamplingContext,
-    ip_addr: Option<IpAddr>,
-    ty: RuleType,
-) -> Option<&'a SamplingRule> {
-    config
-        .rules
-        .iter()
-        .find(|rule| rule.ty == ty && rule.condition.matches_trace(trace, ip_addr))
 }
 
 /// Generates a pseudo random number by seeding the generator with the given id.
@@ -821,8 +847,6 @@ mod tests {
     use std::net::{IpAddr as NetIpAddr, Ipv4Addr};
     use std::str::FromStr;
 
-    use insta::assert_ron_snapshot;
-
     use relay_general::protocol::{
         Contexts, Csp, DeviceContext, Exception, Headers, IpAddr, JsonLenientString, LenientString,
         LogEntry, OsContext, PairList, Request, TagEntry, Tags, User, Values,
@@ -830,6 +854,19 @@ mod tests {
     use relay_general::types::Annotated;
 
     use super::*;
+
+    fn default_sampling_context() -> DynamicSamplingContext {
+        DynamicSamplingContext {
+            trace_id: Uuid::default(),
+            public_key: ProjectKey::parse("abd0f232775f45feab79864e580d160b").unwrap(),
+            release: None,
+            environment: None,
+            transaction: None,
+            sample_rate: None,
+            user: TraceUserContext::default(),
+            other: BTreeMap::new(),
+        }
+    }
 
     fn eq(name: &str, value: &[&str], ignore_case: bool) -> RuleCondition {
         RuleCondition::Eq(EqCondition {
@@ -1012,6 +1049,8 @@ mod tests {
             },
             environment: Some("prod".into()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         assert_eq!(
@@ -1045,6 +1084,8 @@ mod tests {
             user: TraceUserContext::default(),
             environment: None,
             transaction: None,
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
         assert_eq!(Value::Null, dsc.get_value("trace.release"));
         assert_eq!(Value::Null, dsc.get_value("trace.environment"));
@@ -1059,6 +1100,8 @@ mod tests {
             user: TraceUserContext::default(),
             environment: None,
             transaction: None,
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
         assert_eq!(Value::Null, dsc.get_value("trace.user.id"));
         assert_eq!(Value::Null, dsc.get_value("trace.user.segment"));
@@ -1164,11 +1207,13 @@ mod tests {
             },
             environment: Some("debug".into()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         for (rule_test_name, condition) in conditions.iter() {
             let failure_name = format!("Failed on test: '{}'!!!", rule_test_name);
-            assert!(condition.matches_trace(&dsc, None), "{}", failure_name);
+            assert!(condition.matches(&dsc, None), "{}", failure_name);
         }
     }
 
@@ -1246,7 +1291,7 @@ mod tests {
         for (rule_test_name, condition) in conditions.iter() {
             let failure_name = format!("Failed on test: '{}'!!!", rule_test_name);
             let ip_addr = Some(NetIpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
-            assert!(condition.matches_event(&evt, ip_addr), "{}", failure_name);
+            assert!(condition.matches(&evt, ip_addr), "{}", failure_name);
         }
     }
 
@@ -1265,7 +1310,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(condition.matches_event(&evt, None));
+        assert!(condition.matches(&evt, None));
     }
 
     #[test]
@@ -1286,7 +1331,7 @@ mod tests {
             }),
             ..Event::default()
         };
-        assert!(condition.matches_event(&evt, None));
+        assert!(condition.matches(&evt, None));
     }
 
     #[test]
@@ -1337,12 +1382,14 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         for (rule_test_name, expected, condition) in conditions.iter() {
             let failure_name = format!("Failed on test: '{}'!!!", rule_test_name);
             assert!(
-                condition.matches_trace(&dsc, None) == *expected,
+                condition.matches(&dsc, None) == *expected,
                 "{}",
                 failure_name
             );
@@ -1397,12 +1444,14 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         for (rule_test_name, expected, condition) in conditions.iter() {
             let failure_name = format!("Failed on test: '{}'!!!", rule_test_name);
             assert!(
-                condition.matches_trace(&dsc, None) == *expected,
+                condition.matches(&dsc, None) == *expected,
                 "{}",
                 failure_name
             );
@@ -1434,12 +1483,14 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         for (rule_test_name, expected, condition) in conditions.iter() {
             let failure_name = format!("Failed on test: '{}'!!!", rule_test_name);
             assert!(
-                condition.matches_trace(&dsc, None) == *expected,
+                condition.matches(&dsc, None) == *expected,
                 "{}",
                 failure_name
             );
@@ -1494,11 +1545,13 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         for (rule_test_name, condition) in conditions.iter() {
             let failure_name = format!("Failed on test: '{}'!!!", rule_test_name);
-            assert!(!condition.matches_trace(&dsc, None), "{}", failure_name);
+            assert!(!condition.matches(&dsc, None), "{}", failure_name);
         }
     }
 
@@ -1569,7 +1622,7 @@ mod tests {
         relay_log::debug!("{:?}", rules);
         assert!(rules.is_ok());
         let rules = rules.unwrap();
-        assert_ron_snapshot!(rules, @r###"
+        insta::assert_ron_snapshot!(rules, @r###"
             [
               EqCondition(
                 op: "eq",
@@ -1709,10 +1762,12 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         assert!(
-            condition.matches_trace(&dsc, None),
+            condition.matches(&dsc, None),
             "did not match with missing release"
         );
 
@@ -1727,10 +1782,12 @@ mod tests {
             user: TraceUserContext::default(),
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         assert!(
-            condition.matches_trace(&dsc, None),
+            condition.matches(&dsc, None),
             "did not match with missing user segment"
         );
 
@@ -1748,10 +1805,12 @@ mod tests {
             },
             environment: None,
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         assert!(
-            condition.matches_trace(&dsc, None),
+            condition.matches(&dsc, None),
             "did not match with missing environment"
         );
 
@@ -1769,10 +1828,12 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: None,
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         assert!(
-            condition.matches_trace(&dsc, None),
+            condition.matches(&dsc, None),
             "did not match with missing transaction"
         );
         let condition = and(vec![]);
@@ -1783,10 +1844,12 @@ mod tests {
             user: TraceUserContext::default(),
             environment: None,
             transaction: None,
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
         assert!(
-            condition.matches_trace(&dsc, None),
+            condition.matches(&dsc, None),
             "did not match with missing release, user segment, environment and transaction"
         );
     }
@@ -1863,9 +1926,11 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
-        let result = get_matching_trace_rule(&rules, &trace_context, None, RuleType::Trace);
+        let result = rules.get_matching_trace_rule(&trace_context, None);
         // complete match with first rule
         assert_eq!(
             result.unwrap().id,
@@ -1883,9 +1948,11 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
-        let result = get_matching_trace_rule(&rules, &trace_context, None, RuleType::Trace);
+        let result = rules.get_matching_trace_rule(&trace_context, None);
         // should mach the second rule because of the release
         assert_eq!(
             result.unwrap().id,
@@ -1903,9 +1970,11 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
-        let result = get_matching_trace_rule(&rules, &trace_context, None, RuleType::Trace);
+        let result = rules.get_matching_trace_rule(&trace_context, None);
         // should match the third rule because of the unknown release
         assert_eq!(
             result.unwrap().id,
@@ -1923,9 +1992,11 @@ mod tests {
             },
             environment: Some("production".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
-        let result = get_matching_trace_rule(&rules, &trace_context, None, RuleType::Trace);
+        let result = rules.get_matching_trace_rule(&trace_context, None);
         // should match the fourth rule because of the unknown environment
         assert_eq!(
             result.unwrap().id,
@@ -1943,9 +2014,11 @@ mod tests {
             },
             environment: Some("debug".to_string()),
             transaction: Some("transaction1".into()),
+            sample_rate: None,
+            other: BTreeMap::new(),
         };
 
-        let result = get_matching_trace_rule(&rules, &trace_context, None, RuleType::Trace);
+        let result = rules.get_matching_trace_rule(&trace_context, None);
         // should match the fourth rule because of the unknown user segment
         assert_eq!(
             result.unwrap().id,
@@ -2045,7 +2118,7 @@ mod tests {
         }
         "#;
         let dsc = serde_json::from_str::<DynamicSamplingContext>(json).unwrap();
-        assert_ron_snapshot!(dsc, @r###"
+        insta::assert_ron_snapshot!(dsc, @r###"
         {
           "trace_id": "00000000-0000-0000-0000-000000000000",
           "public_key": "abd0f232775f45feab79864e580d160b",
@@ -2055,5 +2128,112 @@ mod tests {
           "user_id": "hello",
         }
         "###);
+    }
+
+    #[test]
+    fn test_parse_sample_rate() {
+        let json = r#"
+        {
+            "trace_id": "00000000-0000-0000-0000-000000000000",
+            "public_key": "abd0f232775f45feab79864e580d160b",
+            "user_id": "hello",
+            "sample_rate": "0.5"
+        }
+        "#;
+        let dsc = serde_json::from_str::<DynamicSamplingContext>(json).unwrap();
+        insta::assert_ron_snapshot!(dsc, @r###"
+        {
+          "trace_id": "00000000-0000-0000-0000-000000000000",
+          "public_key": "abd0f232775f45feab79864e580d160b",
+          "release": None,
+          "environment": None,
+          "transaction": None,
+          "sample_rate": "0.5",
+          "user_id": "hello",
+        }
+        "###);
+    }
+
+    #[test]
+    fn test_parse_sample_rate_scientific_notation() {
+        let json = r#"
+        {
+            "trace_id": "00000000-0000-0000-0000-000000000000",
+            "public_key": "abd0f232775f45feab79864e580d160b",
+            "user_id": "hello",
+            "sample_rate": "1e-5"
+        }
+        "#;
+        let dsc = serde_json::from_str::<DynamicSamplingContext>(json).unwrap();
+        insta::assert_ron_snapshot!(dsc, @r###"
+        {
+          "trace_id": "00000000-0000-0000-0000-000000000000",
+          "public_key": "abd0f232775f45feab79864e580d160b",
+          "release": None,
+          "environment": None,
+          "transaction": None,
+          "sample_rate": "0.00001",
+          "user_id": "hello",
+        }
+        "###);
+    }
+
+    #[test]
+    fn test_parse_sample_rate_bogus() {
+        let json = r#"
+        {
+            "trace_id": "00000000-0000-0000-0000-000000000000",
+            "public_key": "abd0f232775f45feab79864e580d160b",
+            "user_id": "hello",
+            "sample_rate": "bogus"
+        }
+        "#;
+        serde_json::from_str::<DynamicSamplingContext>(json).unwrap_err();
+    }
+
+    #[test]
+    fn test_parse_sample_rate_number() {
+        let json = r#"
+        {
+            "trace_id": "00000000-0000-0000-0000-000000000000",
+            "public_key": "abd0f232775f45feab79864e580d160b",
+            "user_id": "hello",
+            "sample_rate": 0.1
+        }
+        "#;
+        serde_json::from_str::<DynamicSamplingContext>(json).unwrap_err();
+    }
+
+    #[test]
+    fn test_parse_sample_rate_negative() {
+        let json = r#"
+        {
+            "trace_id": "00000000-0000-0000-0000-000000000000",
+            "public_key": "abd0f232775f45feab79864e580d160b",
+            "user_id": "hello",
+            "sample_rate": "-0.1"
+        }
+        "#;
+        serde_json::from_str::<DynamicSamplingContext>(json).unwrap_err();
+    }
+
+    #[test]
+    fn test_adjust_sample_rate() {
+        let mut dsc = default_sampling_context();
+
+        dsc.sample_rate = Some(0.0);
+        assert_eq!(dsc.adjusted_sample_rate(0.5), 0.5);
+
+        dsc.sample_rate = Some(1.0);
+        assert_eq!(dsc.adjusted_sample_rate(0.5), 0.5);
+
+        dsc.sample_rate = Some(0.1);
+        assert_eq!(dsc.adjusted_sample_rate(0.5), 1.0);
+
+        dsc.sample_rate = Some(0.5);
+        assert_eq!(dsc.adjusted_sample_rate(0.1), 0.2);
+
+        dsc.sample_rate = Some(-0.5);
+        assert_eq!(dsc.adjusted_sample_rate(0.5), 0.5);
     }
 }

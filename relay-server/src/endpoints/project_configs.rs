@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use actix_web::{Error, FromRequest, Json};
-use futures::{future, Future};
+use futures01::{future, Future};
 use serde::{Deserialize, Serialize};
 
 use relay_common::ProjectKey;
@@ -45,7 +45,7 @@ impl<S> FromRequest<S> for VersionQuery {
     type Result = Self;
 
     fn from_request(req: &actix_web::HttpRequest<S>, _: &Self::Config) -> Self::Result {
-        Self::from_request(&*req)
+        Self::from_request(req)
     }
 }
 

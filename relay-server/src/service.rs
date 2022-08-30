@@ -6,24 +6,30 @@ use actix_web::{server, App};
 use failure::ResultExt;
 use failure::{Backtrace, Context, Fail};
 use listenfd::ListenFd;
+use once_cell::race::OnceBox;
 
 use relay_aws_extension::AwsExtension;
 use relay_config::Config;
 use relay_metrics::Aggregator;
 use relay_redis::RedisPool;
+use relay_system::Addr;
 use relay_system::{Configure, Controller};
 
-use crate::actors::envelopes::{EnvelopeManager, EnvelopeProcessor};
+use crate::actors::envelopes::EnvelopeManager;
 use crate::actors::healthcheck::Healthcheck;
 use crate::actors::outcome::OutcomeProducer;
 use crate::actors::outcome_aggregator::OutcomeAggregator;
+use crate::actors::processor::EnvelopeProcessor;
 use crate::actors::project_cache::ProjectCache;
 use crate::actors::relays::RelayCache;
 use crate::actors::upstream::UpstreamRelay;
-use crate::endpoints;
 use crate::middlewares::{
     AddCommonHeaders, ErrorHandlers, Metrics, ReadRequestMiddleware, SentryMiddleware,
 };
+use crate::utils::BufferGuard;
+use crate::{endpoints, utils};
+
+pub static REGISTRY: OnceBox<Registry> = OnceBox::new();
 
 /// Common error type for the relay server.
 #[derive(Debug)]
@@ -104,10 +110,27 @@ impl From<Context<ServerErrorKind>> for ServerError {
     }
 }
 
+#[derive(Clone)]
+pub struct Registry {
+    pub healthcheck: Addr<Healthcheck>,
+    pub processor: actix::Addr<EnvelopeProcessor>,
+}
+
+impl fmt::Debug for Registry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Registry")
+            .field("healthcheck", &self.healthcheck)
+            .field("processor", &format_args!("Addr<Processor>"))
+            .finish()
+    }
+}
+
 /// Server state.
 #[derive(Clone)]
 pub struct ServiceState {
     config: Arc<Config>,
+    buffer_guard: Arc<BufferGuard>,
+    _runtime: Arc<tokio::runtime::Runtime>,
 }
 
 impl ServiceState {
@@ -116,12 +139,20 @@ impl ServiceState {
         let system = System::current();
         let registry = system.registry();
 
+        let runtime = utils::tokio_runtime_with_actix();
+
+        // Enter the tokio runtime so we can start spawning tasks from the outside.
+        let _guard = runtime.enter();
+
         let upstream_relay = UpstreamRelay::new(config.clone());
         registry.set(Arbiter::start(|_| upstream_relay));
 
         let outcome_producer = OutcomeProducer::create(config.clone())?;
         let outcome_producer = Arbiter::start(|_| outcome_producer);
         registry.set(outcome_producer.clone());
+
+        let outcome_aggregator = OutcomeAggregator::new(&config, outcome_producer.recipient());
+        registry.set(outcome_aggregator.start());
 
         let redis_pool = match config.redis() {
             Some(redis_config) if config.processing_enabled() => {
@@ -130,19 +161,20 @@ impl ServiceState {
             _ => None,
         };
 
+        let buffer = Arc::new(BufferGuard::new(config.envelope_buffer_size()));
         let processor = EnvelopeProcessor::start(config.clone(), redis_pool.clone())?;
-        let envelope_manager = EnvelopeManager::create(config.clone(), processor)?;
-        registry.set(envelope_manager.start());
+        let envelope_manager = EnvelopeManager::create(config.clone())?;
+        registry.set(Arbiter::start(|_| envelope_manager));
 
-        let project_cache = ProjectCache::new(config.clone(), redis_pool).start();
+        let project_cache = ProjectCache::new(config.clone(), redis_pool);
+        let project_cache = Arbiter::start(|_| project_cache);
         registry.set(project_cache.clone());
-        registry.set(Healthcheck::new(config.clone()).start());
-        registry.set(RelayCache::new(config.clone()).start());
-        registry
-            .set(Aggregator::new(config.aggregator_config(), project_cache.recipient()).start());
 
-        let outcome_aggregator = OutcomeAggregator::new(&config, outcome_producer.recipient());
-        registry.set(outcome_aggregator.start());
+        let healthcheck = Healthcheck::new(config.clone()).start();
+        registry.set(RelayCache::new(config.clone()).start());
+
+        let aggregator = Aggregator::new(config.aggregator_config(), project_cache.recipient());
+        registry.set(Arbiter::start(|_| aggregator));
 
         if let Some(aws_api) = config.aws_runtime_api() {
             if let Ok(aws_extension) = AwsExtension::new(aws_api) {
@@ -150,12 +182,31 @@ impl ServiceState {
             }
         }
 
-        Ok(ServiceState { config })
+        REGISTRY
+            .set(Box::new(Registry {
+                processor,
+                healthcheck,
+            }))
+            .unwrap();
+
+        Ok(ServiceState {
+            buffer_guard: buffer,
+            config,
+            _runtime: Arc::new(runtime),
+        })
     }
 
     /// Returns an atomically counted reference to the config.
     pub fn config(&self) -> Arc<Config> {
         self.config.clone()
+    }
+
+    /// Returns a reference to the guard of the envelope buffer.
+    ///
+    /// This can be used to enter new envelopes into the processing queue and reserve a slot in the
+    /// buffer. See [`BufferGuard`] for more information.
+    pub fn buffer_guard(&self) -> Arc<BufferGuard> {
+        self.buffer_guard.clone()
     }
 }
 

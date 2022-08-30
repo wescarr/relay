@@ -59,85 +59,6 @@ def test_legacy_store(mini_sentry, relay_chain):
     assert event["logentry"] == {"formatted": "Hello, World!"}
 
 
-@pytest.mark.parametrize(
-    "filter_config, should_filter",
-    [
-        ({"errorMessages": {"patterns": ["Panic: originalCreateNotification"]}}, True),
-        ({"errorMessages": {"patterns": ["Warning"]}}, False),
-    ],
-    ids=["error messages filtered", "error messages not filtered",],
-)
-def test_filters_are_applied(
-    mini_sentry, relay_with_processing, events_consumer, filter_config, should_filter,
-):
-    """
-    Test that relay normalizes messages when processing is enabled and sends them via Kafka queues
-    """
-    events_consumer = events_consumer()
-
-    relay = relay_with_processing()
-    project_id = 42
-    project_config = mini_sentry.add_full_project_config(project_id)
-    filter_settings = project_config["config"]["filterSettings"]
-    for key in filter_config.keys():
-        filter_settings[key] = filter_config[key]
-
-    # create a unique message so we can make sure we don't test with stale data
-    now = datetime.datetime.utcnow()
-    message_text = "some message {}".format(now.isoformat())
-
-    event = {
-        "message": message_text,
-        "exception": {
-            "values": [{"type": "Panic", "value": "originalCreateNotification"}]
-        },
-    }
-
-    relay.send_event(project_id, event)
-
-    if should_filter:
-        events_consumer.assert_empty()
-    else:
-        events_consumer.get_event()
-
-
-@pytest.mark.parametrize(
-    "is_enabled, should_filter",
-    [(True, True), (False, False),],
-    ids=["web crawlers filtered", "web crawlers not filtered",],
-)
-def test_web_crawlers_filter_are_applied(
-    mini_sentry, relay_with_processing, events_consumer, is_enabled, should_filter,
-):
-    """
-    Test that relay normalizes messages when processing is enabled and sends them via Kafka queues
-    """
-    relay = relay_with_processing()
-    project_id = 42
-    project_config = mini_sentry.add_full_project_config(project_id)
-    filter_settings = project_config["config"]["filterSettings"]
-    filter_settings["webCrawlers"] = {"isEnabled": is_enabled}
-
-    # UA parsing introduces higher latency in debug mode
-    events_consumer = events_consumer(timeout=10)
-
-    # create a unique message so we can make sure we don't test with stale data
-    now = datetime.datetime.utcnow()
-    message_text = "some message {}".format(now.isoformat())
-
-    event = {
-        "message": message_text,
-        "request": {"headers": {"User-Agent": "BingBot",}},
-    }
-
-    relay.send_event(project_id, event)
-
-    if should_filter:
-        events_consumer.assert_empty()
-    else:
-        events_consumer.get_event()
-
-
 @pytest.mark.parametrize("method_to_test", [("GET", False), ("POST", True)])
 def test_options_response(mini_sentry, relay, method_to_test):
     method, should_succeed = method_to_test
@@ -193,36 +114,6 @@ def test_store_pii_stripping(mini_sentry, relay):
 
     # Email should be stripped:
     assert event["extra"]["foo"] == "[email]"
-
-
-def test_store_timeout(mini_sentry, relay):
-    from time import sleep
-
-    get_project_config_original = mini_sentry.app.view_functions["get_project_config"]
-
-    @mini_sentry.app.endpoint("get_project_config")
-    def get_project_config():
-        sleep(1.5)  # Causes the first event to drop, but not the second one
-        return get_project_config_original()
-
-    relay = relay(mini_sentry, {"cache": {"event_expiry": 1}})
-
-    project_id = 42
-    mini_sentry.add_basic_project_config(project_id)
-
-    try:
-        relay.send_event(project_id, {"message": "invalid"})
-        sleep(1)  # Sleep so that the second event also has to wait but succeeds
-        relay.send_event(project_id, {"message": "correct"})
-
-        event = mini_sentry.captured_events.get(timeout=1).get_event()
-        assert event["logentry"] == {"formatted": "correct"}
-        pytest.raises(queue.Empty, lambda: mini_sentry.captured_events.get(timeout=1))
-        ((route, error),) = mini_sentry.test_failures
-        assert route == "/api/666/envelope/"
-        assert "configured lifetime" in str(error)
-    finally:
-        mini_sentry.test_failures.clear()
 
 
 def test_store_rate_limit(mini_sentry, relay):
@@ -322,7 +213,7 @@ def test_store_buffer_size(mini_sentry, relay):
 
         for (_, error) in mini_sentry.test_failures:
             assert isinstance(error, AssertionError)
-            assert "Too many envelopes" in str(error)
+            assert "buffer capacity exceeded" in str(error)
     finally:
         mini_sentry.test_failures.clear()
 
@@ -463,6 +354,12 @@ def test_processing(
     assert event.get("key_id") is not None
     assert event.get("project") is not None
     assert event.get("version") is not None
+
+    if event_type == "transaction":
+        assert event["transaction_info"]["source"] == "unknown"  # the default
+    else:
+        # Should not be serialized
+        assert "transaction_info" not in event
 
 
 # TODO: This parameterization should be unit-tested, instead
