@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Context;
 
+use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 
 /// A message interface for [services](Service).
@@ -424,6 +425,17 @@ pub trait Service: Sized {
     /// Starts the service in the current runtime and returns an address for it.
     fn start(self) -> Addr<Self::Interface> {
         let (addr, rx) = channel();
+        self.spawn_handler(rx);
+        addr
+    }
+
+    /// Starts the service in the given runtime and returns an address for it.
+    fn start_in(self, runtime: &Runtime) -> Addr<Self::Interface>
+    where
+        Self: Send + 'static,
+    {
+        let (addr, rx) = channel();
+        let _enter = runtime.enter();
         self.spawn_handler(rx);
         addr
     }

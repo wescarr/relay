@@ -132,8 +132,8 @@ impl fmt::Debug for Registry {
 pub struct ServiceState {
     config: Arc<Config>,
     buffer_guard: Arc<BufferGuard>,
-    _outcome_runtime: Arc<tokio::runtime::Runtime>,
-    _main_runtime: Arc<tokio::runtime::Runtime>,
+    _outcome_rt: Arc<tokio::runtime::Runtime>,
+    _main_rt: Arc<tokio::runtime::Runtime>,
 }
 
 impl ServiceState {
@@ -142,14 +142,16 @@ impl ServiceState {
         let system = System::current();
         let registry = system.registry();
 
+        let outcome_rt = utils::tokio_runtime_with_actix();
+        let main_rt = utils::tokio_runtime_with_actix();
+
         let upstream_relay = UpstreamRelay::new(config.clone());
         registry.set(Arbiter::start(|_| upstream_relay));
 
-        let outcome_runtime = utils::tokio_runtime_with_actix();
-        let guard = outcome_runtime.enter();
-        let outcome_producer = OutcomeProducerService::create(config.clone())?.start();
-        let outcome_aggregator = OutcomeAggregator::new(&config, outcome_producer.clone()).start();
-        drop(guard);
+        let outcome_producer =
+            OutcomeProducerService::create(config.clone())?.start_in(&outcome_rt);
+        let outcome_aggregator =
+            OutcomeAggregator::new(&config, outcome_producer.clone()).start_in(&outcome_rt);
 
         let redis_pool = match config.redis() {
             Some(redis_config) if config.processing_enabled() => {
@@ -157,10 +159,6 @@ impl ServiceState {
             }
             _ => None,
         };
-
-        // Enter and enter the tokio runtime so we can start spawning tasks from the outside.
-        let main_runtime = utils::tokio_runtime_with_actix();
-        let _guard = main_runtime.enter();
 
         let buffer = Arc::new(BufferGuard::new(config.envelope_buffer_size()));
         let processor = EnvelopeProcessor::start(config.clone(), redis_pool.clone())?;
@@ -171,7 +169,7 @@ impl ServiceState {
         let project_cache = Arbiter::start(|_| project_cache);
         registry.set(project_cache.clone());
 
-        let health_check = HealthCheckService::new(config.clone()).start();
+        let health_check = HealthCheckService::new(config.clone()).start_in(&main_rt);
         registry.set(RelayCache::new(config.clone()).start());
 
         let aggregator = Aggregator::new(config.aggregator_config(), project_cache.recipient());
@@ -195,8 +193,8 @@ impl ServiceState {
         Ok(ServiceState {
             buffer_guard: buffer,
             config,
-            _outcome_runtime: Arc::new(outcome_runtime),
-            _main_runtime: Arc::new(main_runtime),
+            _outcome_rt: Arc::new(outcome_rt),
+            _main_rt: Arc::new(main_rt),
         })
     }
 
